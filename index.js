@@ -30,42 +30,103 @@ app.get("/summaries", async (req, res) => {
 });
 
 app.post("/users/register", async (req, res) => {
-  const username = req.body.username;
-  const password = req.body.password;
+  try {
+    const username = req.body.username;
+    const password = req.body.password;
 
-  const checkUser = await prisma.user.findUnique({
-    where: {
-      username,
-    },
-  });
-  if (checkUser) {
+    const checkUser = await prisma.user.findUnique({
+      where: {
+        username,
+      },
+    });
+    if (checkUser) {
+      return res.send({
+        success: false,
+        error: "a username has already been taken",
+      });
+    }
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const user = await prisma.user.create({
+      data: {
+        username,
+        password: hashedPassword,
+      },
+    });
+
+    const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET);
+    res.send({
+      success: true,
+      token,
+    });
+  } catch (error) {
     return res.send({
       success: false,
-      error: "a username has already been taken",
+      error: error.message,
     });
   }
-  const hashedPassword = await bcrypt.hash(password, 10);
-  const user = await prisma.user.create({
-    data: {
-      username,
-      password: hashedPassword,
-    },
-  });
-
-  const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET);
-  res.send({
-    success: true,
-    token,
-  });
 });
 
-// /users/token to ger back users info
+// login rout
+app.post("/users/Login", async (req, res) => {
+  try {
+    const { username, password } = req.body;
 
-// app.get("/users/token", (req, res) => {
-//  res.send({
-//     success: true,
-//   });
-// });
+    if (!username || !password) {
+      return res.send({
+        success: false,
+        error: "you have to provide username and password",
+      });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: {
+        username,
+      },
+    });
+    if (!user) {
+      return res.send({
+        success: false,
+        error: "invalid username or password",
+      });
+    }
+    // password matches
+    const isUserValid = await bcrypt.compare(password, user.password);
+    if (!isUserValid) {
+      return res.send({
+        success: false,
+        message: "invalid username or password",
+      });
+    }
+
+    const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET);
+    res.send({
+      success: true,
+      token,
+    });
+  } catch (error) {
+    return res.send({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+app.get("/users/token", async (req, res) => {
+  const token = await req.headers.authorization.split(" ")[1];
+  const { userId } = jwt.verify(token, process.env.JWT_SECRET);
+
+  const user = await prisma.user.findUnique({
+    where: {
+      id: userId,
+    },
+  });
+  delete user.password;
+
+  res.send({
+    success: true,
+    user,
+  });
+});
 
 app.use((req, res) => {
   res.send({
